@@ -7,52 +7,55 @@ app.use(express.json());
 
 let lastBTCPrice = null;
 
-// Home check
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "FlowTradeAI backend with smart AI is running"
+    message: "FlowTradeAI backend with signals is running"
   });
 });
 
-// AI endpoint
 app.post("/ai", async (req, res) => {
   try {
     const response = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
     );
     const data = await response.json();
-    const currentPrice = data.bitcoin.usd;
+    const price = data.bitcoin.usd;
 
-    let insight = "";
+    let signal = "HOLD";
+    let confidence = 50;
+    let reason = "Market is stabilizing.";
 
-    if (lastBTCPrice === null) {
-      insight = "Market initializing. Collecting data for trend analysis.";
-    } else if (currentPrice > lastBTCPrice) {
-      insight =
-        "Bullish momentum detected. BTC is moving upward with positive strength.";
-    } else if (currentPrice < lastBTCPrice) {
-      insight =
-        "Bearish pressure observed. BTC price is declining. Risk management advised.";
-    } else {
-      insight =
-        "Sideways movement detected. Market is consolidating with low momentum.";
+    if (lastBTCPrice !== null) {
+      if (price > lastBTCPrice) {
+        signal = "BUY";
+        confidence = 70;
+        reason = "BTC price increased compared to previous data.";
+      } else if (price < lastBTCPrice) {
+        signal = "SELL";
+        confidence = 70;
+        reason = "BTC price decreased compared to previous data.";
+      }
     }
 
-    lastBTCPrice = currentPrice;
+    lastBTCPrice = price;
 
     res.json({
-      ai: insight,
-      btc_price: currentPrice
+      signal,
+      confidence,
+      price,
+      explanation: reason
     });
-  } catch (error) {
+  } catch {
     res.json({
-      ai: "Market data temporarily unavailable. Please retry."
+      signal: "HOLD",
+      confidence: 40,
+      explanation: "Market data unavailable."
     });
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("FlowTradeAI smart backend running on port " + PORT);
+  console.log("FlowTradeAI signal backend running on port " + PORT);
 });
