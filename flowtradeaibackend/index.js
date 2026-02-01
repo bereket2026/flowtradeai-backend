@@ -6,11 +6,14 @@ app.use(cors());
 app.use(express.json());
 
 let lastBTCPrice = null;
+let position = null;
+let entryPrice = null;
+let tradeHistory = [];
 
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "FlowTradeAI backend with signals is running"
+    message: "FlowTradeAI backend with trade history is running"
   });
 });
 
@@ -24,18 +27,46 @@ app.post("/ai", async (req, res) => {
 
     let signal = "HOLD";
     let confidence = 50;
-    let reason = "Market is stabilizing.";
+    let explanation = "Market is stable.";
 
     if (lastBTCPrice !== null) {
       if (price > lastBTCPrice) {
         signal = "BUY";
         confidence = 70;
-        reason = "BTC price increased compared to previous data.";
+        explanation = "BTC price increased since last check.";
       } else if (price < lastBTCPrice) {
         signal = "SELL";
         confidence = 70;
-        reason = "BTC price decreased compared to previous data.";
+        explanation = "BTC price decreased since last check.";
       }
+    }
+
+    // PAPER TRADING + HISTORY
+    if (signal === "BUY" && position !== "LONG") {
+      position = "LONG";
+      entryPrice = price;
+      tradeHistory.push({
+        time: new Date().toLocaleString(),
+        action: "BUY",
+        price
+      });
+    }
+
+    if (signal === "SELL" && position === "LONG") {
+      const pnl = (((price - entryPrice) / entryPrice) * 100).toFixed(2);
+      tradeHistory.push({
+        time: new Date().toLocaleString(),
+        action: "SELL",
+        price,
+        pnl
+      });
+      position = null;
+      entryPrice = null;
+    }
+
+    let pnl = null;
+    if (position === "LONG" && entryPrice) {
+      pnl = (((price - entryPrice) / entryPrice) * 100).toFixed(2);
     }
 
     lastBTCPrice = price;
@@ -44,7 +75,11 @@ app.post("/ai", async (req, res) => {
       signal,
       confidence,
       price,
-      explanation: reason
+      position: position ? position : "NONE",
+      entryPrice,
+      pnl,
+      explanation,
+      history: tradeHistory.slice(-10) // last 10 trades
     });
   } catch {
     res.json({
@@ -57,5 +92,5 @@ app.post("/ai", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("FlowTradeAI signal backend running on port " + PORT);
+  console.log("FlowTradeAI backend with history running on port " + PORT);
 });
