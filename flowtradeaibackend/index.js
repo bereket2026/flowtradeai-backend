@@ -5,18 +5,40 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-let lastBTCPrice = null;
+// ====== STATE ======
+let prices = [];
 let position = null;
 let entryPrice = null;
 let tradeHistory = [];
 
+// ====== RSI FUNCTION ======
+function calculateRSI(values, period = 14) {
+  if (values.length < period + 1) return null;
+
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = values.length - period; i < values.length; i++) {
+    const diff = values[i] - values[i - 1];
+    if (diff >= 0) gains += diff;
+    else losses -= diff;
+  }
+
+  if (losses === 0) return 100;
+
+  const rs = gains / losses;
+  return Math.round(100 - 100 / (1 + rs));
+}
+
+// ====== HOME ======
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "FlowTradeAI backend with trade history is running"
+    message: "FlowTradeAI backend with RSI is running"
   });
 });
 
+// ====== AI ENDPOINT ======
 app.post("/ai", async (req, res) => {
   try {
     const response = await fetch(
@@ -25,23 +47,30 @@ app.post("/ai", async (req, res) => {
     const data = await response.json();
     const price = data.bitcoin.usd;
 
+    prices.push(price);
+    if (prices.length > 100) prices.shift();
+
+    const rsi = calculateRSI(prices);
+
     let signal = "HOLD";
     let confidence = 50;
-    let explanation = "Market is stable.";
+    let explanation = "Market neutral.";
 
-    if (lastBTCPrice !== null) {
-      if (price > lastBTCPrice) {
+    if (rsi !== null) {
+      if (rsi < 30) {
         signal = "BUY";
-        confidence = 70;
-        explanation = "BTC price increased since last check.";
-      } else if (price < lastBTCPrice) {
+        confidence = 75;
+        explanation = `RSI ${rsi} indicates oversold conditions.`;
+      } else if (rsi > 70) {
         signal = "SELL";
-        confidence = 70;
-        explanation = "BTC price decreased since last check.";
+        confidence = 78;
+        explanation = `RSI ${rsi} indicates overbought conditions.`;
+      } else {
+        explanation = `RSI ${rsi} is neutral.`;
       }
     }
 
-    // PAPER TRADING + HISTORY
+    // ====== PAPER TRADING ======
     if (signal === "BUY" && position !== "LONG") {
       position = "LONG";
       entryPrice = price;
@@ -69,19 +98,19 @@ app.post("/ai", async (req, res) => {
       pnl = (((price - entryPrice) / entryPrice) * 100).toFixed(2);
     }
 
-    lastBTCPrice = price;
-
     res.json({
+      price,
+      rsi,
       signal,
       confidence,
-      price,
-      position: position ? position : "NONE",
+      position: position || "NONE",
       entryPrice,
       pnl,
       explanation,
-      history: tradeHistory.slice(-10) // last 10 trades
+      history: tradeHistory.slice(-10)
     });
-  } catch {
+
+  } catch (err) {
     res.json({
       signal: "HOLD",
       confidence: 40,
@@ -90,7 +119,8 @@ app.post("/ai", async (req, res) => {
   }
 });
 
+// ====== START ======
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("FlowTradeAI backend with history running on port " + PORT);
+  console.log("FlowTradeAI backend with RSI running on port " + PORT);
 });
